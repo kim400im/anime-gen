@@ -54,6 +54,16 @@ export default function Home() {
   const [brushSize, setBrushSize] = useState(5);
   const [brushColor, setBrushColor] = useState('#000000');
 
+  // 스토리보드 생성 모달 관련 상태
+  const [isStoryboardModalOpen, setIsStoryboardModalOpen] = useState(false);
+  const [selectedCharacter1, setSelectedCharacter1] = useState<Character | null>(null);
+  const [selectedCharacter2, setSelectedCharacter2] = useState<Character | null>(null);
+  const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
+  const [storyPrompt, setStoryPrompt] = useState('');
+  const [draggedCharacters, setDraggedCharacters] = useState<Array<{character: Character, x: number, y: number, id: string}>>([]);
+  const storyCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDraggingCharacter, setIsDraggingCharacter] = useState<string | null>(null);
+
 
   // --- DATA FETCHING ---
   useEffect(() => {
@@ -279,24 +289,72 @@ export default function Home() {
     setSelectedScene(null);
   };
 
-  const handleCreateStoryboard = async () => {
-    if (!keyImage) return;
-    setIsLoading(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/generate-storyboard`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keyImageUrl: keyImage }),
-      });
-      if (!response.ok) throw new Error('Failed to create storyboard');
-      const newStoryboard: StoryboardScene[] = await response.json();
-      setStoryboard(newStoryboard);
-    } catch (error) {
-      console.error(error);
-      alert("스토리보드 생성에 실패했습니다.");
-    } finally {
-      setIsLoading(false);
+  const handleCreateStoryboard = () => {
+    // 현재 키 이미지를 배경으로 설정
+    if (keyImage) {
+      setBackgroundImage(keyImage);
     }
+    setIsStoryboardModalOpen(true);
+  };
+
+  // 드래그 앤 드랍 핸들러
+  const handleDragStart = (e: React.DragEvent, character: Character) => {
+    e.dataTransfer.setData('character', JSON.stringify(character));
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const characterData = e.dataTransfer.getData('character');
+    if (characterData && storyCanvasRef.current) {
+      const character = JSON.parse(characterData);
+      const rect = storyCanvasRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      const newCharacterId = `${character.id}-${Date.now()}`;
+      setDraggedCharacters(prev => [...prev, { character, x, y, id: newCharacterId }]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleBackgroundUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setBackgroundImage(event.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // 캐릭터 드래그 핸들러
+  const handleCharacterMouseDown = (e: React.MouseEvent, characterId: string) => {
+    e.preventDefault();
+    setIsDraggingCharacter(characterId);
+  };
+
+  const handleCanvasMouseMove = (e: React.MouseEvent) => {
+    if (isDraggingCharacter && storyCanvasRef.current) {
+      const rect = storyCanvasRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      setDraggedCharacters(prev => 
+        prev.map(char => 
+          char.id === isDraggingCharacter 
+            ? { ...char, x, y }
+            : char
+        )
+      );
+    }
+  };
+
+  const handleCanvasMouseUp = () => {
+    setIsDraggingCharacter(null);
   };
 
 
@@ -657,6 +715,179 @@ export default function Home() {
                 className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-md font-semibold transition-colors"
               >
                 저장하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Storyboard Creation Modal */}
+      {isStoryboardModalOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+          onClick={() => setIsStoryboardModalOpen(false)}
+        >
+          <div 
+            className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-7xl max-h-[95vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-2xl font-bold mb-6">스토리보드 구성하기</h2>
+            
+            <div className="grid grid-cols-4 gap-6">
+              {/* Left Panel: Characters */}
+              <div className="col-span-1">
+                <h3 className="text-lg font-semibold mb-4">캐릭터 선택</h3>
+                
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-2">캐릭터 1:</label>
+                  <select 
+                    value={selectedCharacter1?.id || ''} 
+                    onChange={(e) => setSelectedCharacter1(characters.find(c => c.id === Number(e.target.value)) || null)}
+                    className="w-full bg-gray-700 p-2 rounded-md text-white"
+                  >
+                    <option value="">선택하세요</option>
+                    {characters.map(char => (
+                      <option key={char.id} value={char.id}>{char.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-2">캐릭터 2:</label>
+                  <select 
+                    value={selectedCharacter2?.id || ''} 
+                    onChange={(e) => setSelectedCharacter2(characters.find(c => c.id === Number(e.target.value)) || null)}
+                    className="w-full bg-gray-700 p-2 rounded-md text-white"
+                  >
+                    <option value="">선택하세요</option>
+                    {characters.map(char => (
+                      <option key={char.id} value={char.id}>{char.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-2">배경 이미지:</label>
+                  <input 
+                    type="file"
+                    accept="image/*"
+                    onChange={handleBackgroundUpload}
+                    className="w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+                  />
+                </div>
+
+                {/* Draggable Characters */}
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium">드래그해서 배치:</h4>
+                  {[selectedCharacter1, selectedCharacter2].filter(Boolean).map((char) => (
+                    <div
+                      key={char!.id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, char!)}
+                      className="bg-gray-700 p-2 rounded-md cursor-move hover:bg-gray-600 transition-colors flex items-center"
+                    >
+                      <Image src={char!.imageUrl} alt={char!.name} width={30} height={30} className="rounded mr-2" />
+                      <span className="text-sm">{char!.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Center Panel: Canvas */}
+              <div className="col-span-2">
+                <h3 className="text-lg font-semibold mb-4">스토리보드 캔버스</h3>
+                <div 
+                  className="border-2 border-dashed border-gray-600 rounded-lg bg-white relative"
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  onMouseMove={handleCanvasMouseMove}
+                  onMouseUp={handleCanvasMouseUp}
+                  onMouseLeave={handleCanvasMouseUp}
+                  style={{ height: '500px' }}
+                >
+                  {/* Background Image */}
+                  {backgroundImage && (
+                    <div 
+                      className="absolute inset-0 w-full h-full rounded-lg"
+                      style={{ 
+                        backgroundImage: `url(${backgroundImage})`,
+                        backgroundSize: 'contain',
+                        backgroundPosition: 'center',
+                        backgroundRepeat: 'no-repeat'
+                      }}
+                    />
+                  )}
+                  
+                  <canvas
+                    ref={storyCanvasRef}
+                    width={600}
+                    height={500}
+                    className="absolute inset-0 w-full h-full"
+                    style={{ background: 'transparent' }}
+                  />
+                  
+                  {/* Render dragged characters */}
+                  {draggedCharacters.map((draggedChar) => (
+                    <div
+                      key={draggedChar.id}
+                      className="absolute cursor-move"
+                      style={{
+                        left: `${draggedChar.x - 25}px`,
+                        top: `${draggedChar.y - 25}px`,
+                        zIndex: isDraggingCharacter === draggedChar.id ? 10 : 1
+                      }}
+                      onMouseDown={(e) => handleCharacterMouseDown(e, draggedChar.id)}
+                    >
+                      <Image 
+                        src={draggedChar.character.imageUrl} 
+                        alt={draggedChar.character.name} 
+                        width={50} 
+                        height={50} 
+                        className={`rounded-full border-2 shadow-lg ${
+                          isDraggingCharacter === draggedChar.id 
+                            ? 'border-blue-400 shadow-blue-400/50' 
+                            : 'border-white'
+                        }`}
+                        draggable={false}
+                      />
+                    </div>
+                  ))}
+                  
+                  {draggedCharacters.length === 0 && !backgroundImage && (
+                    <div className="absolute inset-0 flex items-center justify-center text-gray-500">
+                      <p>캐릭터를 여기에 드래그하세요</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Panel: Prompt */}
+              <div className="col-span-1">
+                <h3 className="text-lg font-semibold mb-4">스토리 프롬프트</h3>
+                <textarea
+                  value={storyPrompt}
+                  onChange={(e) => setStoryPrompt(e.target.value)}
+                  placeholder="스토리보드에 대한 설명을 입력하세요..."
+                  className="w-full h-64 p-3 bg-gray-700 text-white rounded-md resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-4 mt-6">
+              <button 
+                onClick={() => setIsStoryboardModalOpen(false)}
+                className="bg-gray-600 hover:bg-gray-700 px-6 py-2 rounded-md font-semibold transition-colors"
+              >
+                취소
+              </button>
+              <button 
+                onClick={() => {
+                  // TODO: Implement storyboard generation
+                  alert('스토리보드 생성 기능은 다음에 구현할 예정입니다.');
+                }}
+                className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-md font-semibold transition-colors"
+              >
+                스토리보드 생성
               </button>
             </div>
           </div>
