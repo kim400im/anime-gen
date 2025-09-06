@@ -357,6 +357,54 @@ export default function Home() {
     setIsDraggingCharacter(null);
   };
 
+  const handleGenerateStoryboard = async () => {
+    if (!keyImage || draggedCharacters.length === 0) {
+      alert('스케치와 캐릭터를 배치해주세요.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const requestData = {
+        backgroundImage: keyImage,
+        characters: draggedCharacters.map(dc => ({
+          character: dc.character,
+          x: dc.x,
+          y: dc.y
+        })),
+        prompt: storyPrompt
+      };
+
+      const response = await fetch(`${API_BASE_URL}/api/create-storyboard`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData),
+      });
+
+      if (!response.ok) throw new Error('Failed to create storyboard');
+      
+      const data = await response.json();
+      console.log('Storyboard created:', data);
+      
+      // 생성된 스토리보드를 기존 스토리보드 목록에 추가
+      const newScenes = data.storyboardImages.map((imageUrl: string, index: number) => ({
+        id: Date.now() + index,
+        imageUrl,
+        description: `AI 생성: ${data.sceneDescription.slice(0, 100)}...`
+      }));
+      
+      setStoryboard(prev => [...prev, ...newScenes]);
+      setIsStoryboardModalOpen(false);
+      alert(`스토리보드가 생성되었습니다! ${data.storyboardImages.length}개의 이미지가 생성되었습니다.`);
+      
+    } catch (error) {
+      console.error(error);
+      alert("스토리보드 생성에 실패했습니다.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
 
   // --- RENDER ---
   return (
@@ -881,13 +929,11 @@ export default function Home() {
                 취소
               </button>
               <button 
-                onClick={() => {
-                  // TODO: Implement storyboard generation
-                  alert('스토리보드 생성 기능은 다음에 구현할 예정입니다.');
-                }}
-                className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-md font-semibold transition-colors"
+                onClick={handleGenerateStoryboard}
+                disabled={isLoading || !keyImage || draggedCharacters.length === 0}
+                className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-md font-semibold transition-colors disabled:bg-gray-500"
               >
-                스토리보드 생성
+                {isLoading ? "생성 중..." : "스토리보드 생성"}
               </button>
             </div>
           </div>

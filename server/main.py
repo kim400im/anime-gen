@@ -4,6 +4,7 @@ import shutil
 import time  # time 모듈을 임포트합니다.
 from typing import List, Optional
 import json
+import base64
 
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -73,6 +74,11 @@ class StoryboardGenerationRequest(BaseModel):
 
 class CharacterSheetRequest(BaseModel):
     character: Character
+
+class StoryboardCreationRequest(BaseModel):
+    backgroundImage: str  # base64 data URL
+    characters: List[dict]  # [{"character": Character, "x": float, "y": float}]
+    prompt: str
 
 
 # --- 데이터 저장/로드 함수 ---
@@ -250,3 +256,155 @@ Please create a comprehensive character sheet with all 5 sections for animation 
         import traceback
         traceback.print_exc()
         return {"characterSheetImages": [DEFAULT_IMAGE_URL] * 5}
+
+@app.post("/api/create-storyboard")
+async def create_storyboard(request: StoryboardCreationRequest):
+    print(f"[API] Creating storyboard with {len(request.characters)} characters")
+    print(f"[API] User prompt: {request.prompt}")
+    
+    try:
+        # --- 1. Vision Analysis: 캐릭터 위치 파악 ---
+        print("[API] Analyzing character positions...")
+        
+        # base64 이미지를 바이트로 변환
+        if request.backgroundImage.startswith('data:image'):
+            header, data = request.backgroundImage.split(',', 1)
+            background_bytes = base64.b64decode(data)
+        else:
+            background_bytes = base64.b64decode(request.backgroundImage)
+        
+        # 캐릭터 위치 분석 프롬프트
+        position_analysis_prompt = f"""
+        Analyze this sketch image and describe the positions of characters that should be placed at these coordinates:
+        """
+        
+        for i, char_data in enumerate(request.characters):
+            char = char_data["character"]
+            x_percent = (char_data["x"] / 600) * 100  # 캔버스 크기 기준으로 백분율 계산
+            y_percent = (char_data["y"] / 500) * 100
+            position_analysis_prompt += f"\n- {char['name']}: positioned at {x_percent:.1f}% from left, {y_percent:.1f}% from top"
+        
+        position_analysis_prompt += f"\n\nUser's story context: {request.prompt}\n\nBased on the sketch and character positions, create a detailed scene description for generating a storyboard image."
+        
+        vision_response = client.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            contents=[
+                position_analysis_prompt,
+                types.Part(
+                    inline_data=types.Blob(
+                        mime_type="image/png",
+                        data=background_bytes,
+                    )
+                )
+            ],
+        )
+        
+        scene_description = ""
+        if vision_response.candidates and len(vision_response.candidates) > 0:
+            for part in vision_response.candidates[0].content.parts:
+                if part.text:
+                    scene_description += part.text
+        
+        print(f"[API] Generated scene description: {scene_description[:200]}...")
+        
+        # --- 2. 이미지 생성: 스케치 + 캐릭터 시트 이미지들 ---
+        print("[API] Generating storyboard image...")
+        
+        # 이미지 생성을 위한 콘텐츠 준비
+        generation_prompt = f"""
+        Create a detailed storyboard scene based on this sketch and character references.
+        
+        IMPORTANT: Use the exact character designs from the provided character sheets. Match their clothing, facial features, and style precisely.
+        
+        Scene Description: {scene_description}
+        
+        Style: Animation storyboard, clean lines, detailed characters that EXACTLY match the provided character reference sheets.
+        
+        Character positioning instructions:"""
+        
+        for char_data in request.characters:
+            char = char_data["character"]
+            x_percent = (char_data["x"] / 600) * 100
+            y_percent = (char_data["y"] / 500) * 100
+            generation_prompt += f"\n- Place {char['name']} at {x_percent:.1f}% from left, {y_percent:.1f}% from top, using the exact design from their character sheet."
+        
+        contents_for_generation = [generation_prompt]
+        
+        # 배경 스케치 추가
+        contents_for_generation.append(
+            types.Part(
+                inline_data=types.Blob(
+                    mime_type="image/png",
+                    data=background_bytes,
+                )
+            )
+        )
+        
+        # 각 캐릭터의 캐릭터 시트 이미지들 추가 (모든 시트 이미지 포함)
+        for char_data in request.characters:
+            char = char_data["character"]
+            if char.get("characterSheets") and len(char["characterSheets"]) > 0:
+                # 모든 캐릭터 시트 이미지 추가
+                for i, sheet_url in enumerate(char["characterSheets"]):
+                    if sheet_url.startswith("http://localhost:8000/"):
+                        local_path = sheet_url.replace("http://localhost:8000/", "")
+                        sheet_file_path = os.path.join(".", local_path)
+                        
+                        try:
+                            with open(sheet_file_path, "rb") as f:
+                                sheet_bytes = f.read()
+                            
+                            contents_for_generation.append(
+                                types.Part(
+                                    inline_data=types.Blob(
+                                        mime_type="image/png",
+                                        data=sheet_bytes,
+                                    )
+                                )
+                            )
+                            print(f"[API] Added character sheet {i+1} for {char['name']}")
+                        except Exception as e:
+                            print(f"[API] Failed to load character sheet {i+1} for {char['name']}: {e}")
+                
+                # 캐릭터 시트 설명 추가
+                contents_for_generation[0] += f"\n\nFor {char['name']}: Reference the character sheets provided - use these exact designs for clothing, hair, facial features, and overall appearance."
+        
+        # 이미지 생성 요청
+        generation_response = client.models.generate_content(
+            model="gemini-2.5-flash-image-preview",
+            contents=contents_for_generation,
+        )
+        
+        generated_images = []
+        if generation_response.candidates and len(generation_response.candidates) > 0:
+            parts = generation_response.candidates[0].content.parts
+            print(f"[API] Number of parts in response: {len(parts)}")
+            
+            for i, part in enumerate(parts):
+                if part.inline_data is not None:
+                    print(f"[API] Part {i}: Image data found, size: {len(part.inline_data.data)} bytes")
+                    # 스토리보드 이미지 저장
+                    unique_filename = f"storyboard_{int(time.time())}_{i}.png"
+                    save_path = os.path.join(IMAGES_DIR, unique_filename)
+                    
+                    image = Image.open(BytesIO(part.inline_data.data))
+                    image.save(save_path)
+                    print(f"[API] Saved storyboard image: {save_path}")
+                    
+                    image_url = f"http://localhost:8000/{STATIC_DIR}/images/{unique_filename}"
+                    generated_images.append(image_url)
+        
+        print(f"[API] Generated {len(generated_images)} storyboard images")
+        return {
+            "storyboardImages": generated_images,
+            "sceneDescription": scene_description
+        }
+        
+    except Exception as e:
+        print(f"[API] Error creating storyboard: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "storyboardImages": [DEFAULT_IMAGE_URL],
+            "sceneDescription": "Error generating scene description"
+        }
