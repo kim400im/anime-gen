@@ -1,0 +1,14 @@
+{
+  "characters": [
+    {
+      "id": 1,
+      "name": "kk",
+      "imageUrl": "http://localhost:8000/static/images/1757063357_3f97656f-9890-4637-a6da-004eafd7d463_00002_.png",
+      "characterSheets": [
+        "http://localhost:8000/static/images/character_sheet_1757063379_1.png",
+        "http://localhost:8000/static/images/character_sheet_1757063379_3.png"
+      ]
+    }
+  ],
+  "next_id": 2
+}
