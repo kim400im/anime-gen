@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { updateStory, createTables } from '../../../../lib/db';
+import { updateStory, createTables } from '../../../../../lib/db';
 
 // PUT - 스토리 업데이트
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await createTables();
     
-    const storyId = parseInt(params.id);
+    const { id } = await params;
+    const storyId = parseInt(id);
     const body = await request.json();
     console.log('[API] Updating story:', storyId, body);
 

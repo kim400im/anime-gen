@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { updateStoryboard, createTables } from '../../../../lib/db';
-import { uploadBase64Image } from '../../../../lib/storage';
+import { updateStoryboard, createTables } from '../../../../../lib/db';
+import { uploadBase64Image } from '../../../../../lib/storage';
 
 // PUT - 스토리보드 업데이트 (endFrame 추가 등)
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await createTables();
     
-    const storyboardId = parseInt(params.id);
+    const { id } = await params;
+    const storyboardId = parseInt(id);
     const body = await request.json();
     console.log('[API] Updating storyboard:', storyboardId, body);
 

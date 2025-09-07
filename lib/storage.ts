@@ -38,7 +38,7 @@ export async function uploadBase64Image(base64Data: string, filename: string): P
 // Gemini에서 생성된 이미지 데이터를 업로드
 export async function uploadGeneratedImage(imageBuffer: Buffer, filename: string): Promise<string> {
   try {
-    const file = new File([imageBuffer], filename, { type: 'image/png' });
+    const file = new File([new Uint8Array(imageBuffer)], filename, { type: 'image/png' });
     
     const blob = await put(filename, file, {
       access: 'public',
