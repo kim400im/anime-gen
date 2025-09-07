@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCharacters, createCharacter, createTables } from '../../../lib/db';
-import { uploadImage } from '../../../lib/storage';
+import { getCharacters, createCharacter, createTables } from '../../../../lib/db';
+import { uploadImage } from '../../../../lib/storage';
 
 // GET - 모든 캐릭터 조회
 export async function GET() {

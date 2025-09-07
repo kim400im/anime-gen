@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSketches, createSketch, createTables } from '../../../lib/db';
+import { getSketches, createSketch, createTables } from '../../../../lib/db';
 
 // GET - 모든 스케치 조회
 export async function GET() {

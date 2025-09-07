@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getStories, createStory, updateStory, createTables } from '../../../lib/db';
+import { getStories, createStory, updateStory, createTables } from '../../../../lib/db';
 
 // GET - 모든 스토리 조회
 export async function GET() {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getStoryboards, createStoryboard, updateStoryboard, createTables } from '../../../lib/db';
-import { uploadBase64Image } from '../../../lib/storage';
+import { getStoryboards, createStoryboard, updateStoryboard, createTables } from '../../../../lib/db';
+import { uploadBase64Image } from '../../../../lib/storage';
 
 // GET - 모든 스토리보드 조회
 export async function GET() {
