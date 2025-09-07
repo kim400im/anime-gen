@@ -1,0 +1,17 @@
+{
+  "characters": [
+    {
+      "id": 1,
+      "name": "아리 (기본 캐릭터)",
+      "imageUrl": "/api/placeholder-image",
+      "characterSheets": []
+    },
+    {
+      "id": 1757176838915,
+      "name": "kkk",
+      "imageUrl": "/api/placeholder-image",
+      "characterSheets": []
+    }
+  ],
+  "next_id": 1757176838916
+}

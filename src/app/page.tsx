@@ -16,6 +16,7 @@ interface StoryboardScene {
   id: number;
   imageUrl: string;
   description: string;
+  endFrameUrl?: string; // 다음 장면 생성시 end frame URL
 }
 
 interface Sketch {
@@ -25,8 +26,8 @@ interface Sketch {
   createdAt: string;
 }
 
-// 백엔드 API 기본 URL
-const API_BASE_URL = "http://localhost:8000";
+// API 기본 URL (Next.js API Routes 사용)
+const API_BASE_URL = "";
 
 
 export default function Home() {
@@ -36,6 +37,7 @@ export default function Home() {
   const [keyImage, setKeyImage] = useState<string | null>(null);
   const [storyboard, setStoryboard] = useState<StoryboardScene[]>([]);
   const [selectedScene, setSelectedScene] = useState<StoryboardScene | null>(null);
+  const [isSceneModalOpen, setIsSceneModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [characterDetailModal, setCharacterDetailModal] = useState<Character | null>(null);
@@ -47,15 +49,27 @@ export default function Home() {
 
   // 스케치 관련 상태
   const [sketches, setSketches] = useState<Sketch[]>([]);
+  // 스토리 관련 상태
+  const [stories, setStories] = useState<any[]>([]);
   const [isSketchModalOpen, setIsSketchModalOpen] = useState(false);
   const [selectedSketch, setSelectedSketch] = useState<Sketch | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [brushSize, setBrushSize] = useState(5);
   const [brushColor, setBrushColor] = useState('#000000');
+  
+  // 사이드바 탭 상태
+  const [activeTab, setActiveTab] = useState<'storyboard' | 'sketches'>('storyboard');
 
   // 스토리보드 생성 모달 관련 상태
   const [isStoryboardModalOpen, setIsStoryboardModalOpen] = useState(false);
+  const [isAddStoryModalOpen, setIsAddStoryModalOpen] = useState(false);
+  const [storyText, setStoryText] = useState('');
+  const [editingStory, setEditingStory] = useState<any | null>(null);
+  const [storyElements, setStoryElements] = useState<Array<{type: 'text' | 'character', content: string, character?: Character}>>([]);
+  const [selectedRatio, setSelectedRatio] = useState<string>('1:1');
+  const [isGenerateNextSceneModalOpen, setIsGenerateNextSceneModalOpen] = useState(false);
+  const [nextScenePrompt, setNextScenePrompt] = useState('');
   const [selectedCharacter1, setSelectedCharacter1] = useState<Character | null>(null);
   const [selectedCharacter2, setSelectedCharacter2] = useState<Character | null>(null);
   const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
@@ -87,10 +101,80 @@ export default function Home() {
 
   // 스케치 로드
   useEffect(() => {
-    const savedSketches = localStorage.getItem('sketches');
-    if (savedSketches) {
-      setSketches(JSON.parse(savedSketches));
-    }
+    const fetchSketches = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/sketches`);
+        if (response.ok) {
+          const data = await response.json();
+          setSketches(data.sketches);
+        } else {
+          // 서버 연결 실패시 localStorage에서 로드
+          const savedSketches = localStorage.getItem('sketches');
+          if (savedSketches) {
+            setSketches(JSON.parse(savedSketches));
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch sketches:', error);
+        const savedSketches = localStorage.getItem('sketches');
+        if (savedSketches) {
+          setSketches(JSON.parse(savedSketches));
+        }
+      }
+    };
+    fetchSketches();
+  }, []);
+
+  // 스토리보드 로드
+  useEffect(() => {
+    const fetchStoryboards = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/storyboards`);
+        if (response.ok) {
+          const data = await response.json();
+          setStoryboard(data.storyboards);
+        } else {
+          // 서버 연결 실패시 localStorage에서 로드
+          const savedStoryboard = localStorage.getItem('storyboard');
+          if (savedStoryboard) {
+            setStoryboard(JSON.parse(savedStoryboard));
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch storyboards:', error);
+        const savedStoryboard = localStorage.getItem('storyboard');
+        if (savedStoryboard) {
+          setStoryboard(JSON.parse(savedStoryboard));
+        }
+      }
+    };
+    fetchStoryboards();
+  }, []);
+
+  // 스토리 로드
+  useEffect(() => {
+    const fetchStories = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/stories`);
+        if (response.ok) {
+          const data = await response.json();
+          setStories(data.stories);
+        } else {
+          // 서버 연결 실패시 localStorage에서 로드
+          const savedStories = localStorage.getItem('stories');
+          if (savedStories) {
+            setStories(JSON.parse(savedStories));
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch stories:', error);
+        const savedStories = localStorage.getItem('stories');
+        if (savedStories) {
+          setStories(JSON.parse(savedStories));
+        }
+      }
+    };
+    fetchStories();
   }, []);
 
   // 캔버스 초기화
@@ -265,7 +349,7 @@ export default function Home() {
     }
   };
 
-  const saveSketch = () => {
+  const saveSketch = async () => {
     if (!canvasRef.current) return;
     const canvas = canvasRef.current;
     const dataUrl = canvas.toDataURL();
@@ -275,11 +359,34 @@ export default function Home() {
       dataUrl,
       createdAt: new Date().toISOString()
     };
-    const updatedSketches = [...sketches, newSketch];
-    setSketches(updatedSketches);
-    localStorage.setItem('sketches', JSON.stringify(updatedSketches));
-    setIsSketchModalOpen(false);
-    alert('스케치가 저장되었습니다!');
+
+    try {
+      // 서버에 저장
+      const response = await fetch(`${API_BASE_URL}/api/sketches`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSketch),
+      });
+
+      if (response.ok) {
+        const updatedSketches = [...sketches, newSketch];
+        setSketches(updatedSketches);
+        // 백업용 localStorage도 업데이트
+        localStorage.setItem('sketches', JSON.stringify(updatedSketches));
+        setIsSketchModalOpen(false);
+        alert('스케치가 저장되었습니다!');
+      } else {
+        throw new Error('서버 저장 실패');
+      }
+    } catch (error) {
+      console.error('Failed to save sketch to server:', error);
+      // 서버 저장 실패시 localStorage에만 저장
+      const updatedSketches = [...sketches, newSketch];
+      setSketches(updatedSketches);
+      localStorage.setItem('sketches', JSON.stringify(updatedSketches));
+      setIsSketchModalOpen(false);
+      alert('스케치가 로컬에 저장되었습니다.');
+    }
   };
 
   const selectSketch = (sketch: Sketch) => {
@@ -372,7 +479,8 @@ export default function Home() {
           x: dc.x,
           y: dc.y
         })),
-        prompt: storyPrompt
+        prompt: storyPrompt,
+        aspectRatio: selectedRatio
       };
 
       const response = await fetch(`${API_BASE_URL}/api/create-storyboard`, {
@@ -390,16 +498,284 @@ export default function Home() {
       const newScenes = data.storyboardImages.map((imageUrl: string, index: number) => ({
         id: Date.now() + index,
         imageUrl,
-        description: `AI 생성: ${data.sceneDescription.slice(0, 100)}...`
+        description: `AI 생성: ${data.sceneDescription}`
       }));
       
-      setStoryboard(prev => [...prev, ...newScenes]);
+      const updatedStoryboard = [...storyboard, ...newScenes];
+      setStoryboard(updatedStoryboard);
+      
+      // 서버에 스토리보드 저장
+      try {
+        await fetch(`${API_BASE_URL}/api/storyboards`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scenes: newScenes }),
+        });
+        console.log('Storyboard saved to server');
+      } catch (error) {
+        console.error('Failed to save storyboard to server:', error);
+      }
+      
+      // 백업용 localStorage에도 저장
+      localStorage.setItem('storyboard', JSON.stringify(updatedStoryboard));
+      
+      // 첫 번째 생성된 이미지를 메인 화면에 표시
+      if (data.storyboardImages.length > 0) {
+        setKeyImage(data.storyboardImages[0]);
+      }
+      
       setIsStoryboardModalOpen(false);
       alert(`스토리보드가 생성되었습니다! ${data.storyboardImages.length}개의 이미지가 생성되었습니다.`);
       
     } catch (error) {
       console.error(error);
       alert("스토리보드 생성에 실패했습니다.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSaveStory = async () => {
+    if (!storyText.trim()) {
+      alert('스토리 텍스트를 입력해주세요.');
+      return;
+    }
+
+    if (editingStory) {
+      // 수정 모드
+      const updatedStory = {
+        ...editingStory,
+        text: storyText,
+        elements: storyElements,
+        updatedAt: new Date().toISOString()
+      };
+
+      try {
+        // 서버에 스토리 업데이트
+        const response = await fetch(`${API_BASE_URL}/api/stories/${editingStory.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedStory),
+        });
+
+        if (response.ok) {
+          // 상태 업데이트
+          const updatedStories = stories.map(story => 
+            story.id === editingStory.id ? updatedStory : story
+          );
+          setStories(updatedStories);
+          localStorage.setItem('stories', JSON.stringify(updatedStories));
+          
+          setStoryText('');
+          setEditingStory(null);
+          setStoryElements([]);
+          setIsAddStoryModalOpen(false);
+          alert('스토리가 수정되었습니다!');
+        } else {
+          throw new Error('서버 업데이트 실패');
+        }
+      } catch (error) {
+        console.error('Failed to update story on server:', error);
+        // 서버 업데이트 실패시에도 로컬에서 수정
+        const updatedStories = stories.map(story => 
+          story.id === editingStory.id ? updatedStory : story
+        );
+        setStories(updatedStories);
+        localStorage.setItem('stories', JSON.stringify(updatedStories));
+        
+        setStoryText('');
+        setEditingStory(null);
+        setStoryElements([]);
+        setIsAddStoryModalOpen(false);
+        alert('스토리가 로컬에 수정되었습니다.');
+      }
+    } else {
+      // 새 스토리 추가
+      const newStory = {
+        id: Date.now(),
+        text: storyText,
+        elements: storyElements,
+        createdAt: new Date().toISOString()
+      };
+
+      try {
+        // 서버에 스토리 저장
+        const response = await fetch(`${API_BASE_URL}/api/stories`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newStory),
+        });
+
+        if (response.ok) {
+          // 상태 업데이트
+          const updatedStories = [...stories, newStory];
+          setStories(updatedStories);
+          localStorage.setItem('stories', JSON.stringify(updatedStories));
+          
+          setStoryText('');
+          setStoryElements([]);
+          setIsAddStoryModalOpen(false);
+          alert('스토리가 저장되었습니다!');
+        } else {
+          throw new Error('서버 저장 실패');
+        }
+      } catch (error) {
+        console.error('Failed to save story to server:', error);
+        // 서버 저장 실패시에도 상태와 localStorage 업데이트
+        const updatedStories = [...stories, newStory];
+        setStories(updatedStories);
+        localStorage.setItem('stories', JSON.stringify(updatedStories));
+        
+        setStoryText('');
+        setStoryElements([]);
+        setIsAddStoryModalOpen(false);
+        alert('스토리가 로컬에 저장되었습니다.');
+      }
+    }
+  };
+
+  const handleAddCharacterToStory = (character: Character) => {
+    const characterBadge = `[${character.name}]`;
+    setStoryText(prev => prev + (prev ? ' ' : '') + characterBadge);
+    
+    const newElement = {
+      type: 'character' as const,
+      content: character.name,
+      character: character
+    };
+    setStoryElements(prev => [...prev, newElement]);
+  };
+
+  const handleStoryTextChange = (text: string) => {
+    setStoryText(text);
+  };
+
+  const handleGenerateImageFromStory = async () => {
+    if (!storyText.trim()) {
+      alert('스토리 내용을 입력해주세요.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const requestData = {
+        story: storyText,
+        elements: storyElements,
+        characters: storyElements
+          .filter(el => el.type === 'character')
+          .map(el => el.character),
+        aspectRatio: selectedRatio
+      };
+
+      const response = await fetch(`${API_BASE_URL}/api/generate-story-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData),
+      });
+
+      if (!response.ok) throw new Error('Failed to generate story image');
+      
+      const data = await response.json();
+      
+      // 생성된 이미지를 스토리보드에 추가
+      const newScene = {
+        id: Date.now(),
+        imageUrl: data.imageUrl,
+        description: `스토리 생성: ${storyText.slice(0, 100)}...`
+      };
+      
+      const updatedStoryboard = [...storyboard, newScene];
+      setStoryboard(updatedStoryboard);
+      
+      // 서버에 스토리보드 저장
+      try {
+        await fetch(`${API_BASE_URL}/api/storyboards`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scenes: [newScene] }),
+        });
+        console.log('Storyboard saved to server');
+      } catch (error) {
+        console.error('Failed to save storyboard to server:', error);
+      }
+      
+      // 백업용 localStorage에도 저장
+      localStorage.setItem('storyboard', JSON.stringify(updatedStoryboard));
+      
+      // 메인 화면에 생성된 이미지 표시
+      setKeyImage(data.imageUrl);
+      
+      // 모달 닫기
+      setStoryText('');
+      setStoryElements([]);
+      setEditingStory(null);
+      setIsAddStoryModalOpen(false);
+      
+      alert('스토리 이미지가 생성되었습니다!');
+      
+    } catch (error) {
+      console.error(error);
+      alert("이미지 생성에 실패했습니다.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGenerateNextScene = async () => {
+    if (!selectedScene) return;
+    
+    setIsLoading(true);
+    try {
+      const requestData = {
+        startFrameUrl: selectedScene.imageUrl,
+        prompt: nextScenePrompt.trim() || undefined,
+        aspectRatio: selectedRatio
+      };
+
+      const response = await fetch(`${API_BASE_URL}/api/generate-next-scene`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData),
+      });
+
+      if (!response.ok) throw new Error('Failed to generate next scene');
+      
+      const data = await response.json();
+      
+      // 현재 scene에 endFrameUrl 추가
+      const updatedScene = {
+        ...selectedScene,
+        endFrameUrl: data.endFrameUrl
+      };
+
+      // 스토리보드 업데이트
+      const updatedStoryboard = storyboard.map(scene => 
+        scene.id === selectedScene.id ? updatedScene : scene
+      );
+      setStoryboard(updatedStoryboard);
+      setSelectedScene(updatedScene);
+      
+      // 서버에 업데이트된 스토리보드 저장
+      try {
+        await fetch(`${API_BASE_URL}/api/storyboards/${selectedScene.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedScene),
+        });
+      } catch (error) {
+        console.error('Failed to update storyboard on server:', error);
+      }
+      
+      // localStorage 백업
+      localStorage.setItem('storyboard', JSON.stringify(updatedStoryboard));
+      
+      setIsGenerateNextSceneModalOpen(false);
+      setNextScenePrompt('');
+      alert('다음 장면이 생성되었습니다!');
+      
+    } catch (error) {
+      console.error(error);
+      alert("다음 장면 생성에 실패했습니다.");
     } finally {
       setIsLoading(false);
     }
@@ -468,15 +844,16 @@ export default function Home() {
           
           <div className="bg-gray-800 p-2 rounded-lg mb-4 flex items-center justify-center space-x-4 flex-shrink-0">
             <span>크기:</span>
-            <select className="bg-gray-700 p-1 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option>1024x1024</option>
+            <select 
+              value={selectedRatio}
+              onChange={(e) => setSelectedRatio(e.target.value)}
+              className="bg-gray-700 p-1 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="1:1">1024x1024 (1:1)</option>
+              <option value="16:9">1920x1080 (16:9)</option>
+              <option value="9:16">1080x1920 (9:16)</option>
             </select>
-            <span>비율:</span>
-            <select className="bg-gray-700 p-1 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option>1:1</option>
-              <option>16:9</option>
-              <option>9:16</option>
-            </select>
+            <span className="text-gray-400 text-sm">선택된 비율: {selectedRatio}</span>
           </div>
 
           <div className="flex-grow bg-white rounded-lg mb-4 flex items-center justify-center text-gray-500 relative min-h-0">
@@ -518,82 +895,138 @@ export default function Home() {
         <div className="w-1/4 min-w-[300px] border-l border-gray-700 p-4 flex flex-col">
           <div className="flex mb-4 bg-gray-800 rounded-lg p-1">
             <button 
-              onClick={() => setSelectedScene(null)} 
-              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${!selectedScene ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'}`}
+              onClick={() => setActiveTab('storyboard')} 
+              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${activeTab === 'storyboard' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'}`}
             >
               📚 스토리보드
             </button>
             <button 
-              onClick={() => setSelectedScene(null)} 
-              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${selectedScene ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'}`}
+              onClick={() => setActiveTab('sketches')} 
+              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${activeTab === 'sketches' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-white'}`}
             >
               🎨 스케치
             </button>
           </div>
 
-          {/* Sketches Section */}
-          <div className="mb-6">
-            <h3 className="text-lg font-semibold mb-2">저장된 스케치</h3>
-            {sketches.length === 0 ? (
-              <div className="text-gray-400 text-center py-4">
-                <p>저장된 스케치가 없습니다.</p>
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {sketches.map((sketch) => (
-                  <div
-                    key={sketch.id}
-                    onClick={() => selectSketch(sketch)}
-                    className={`bg-gray-800 p-2 rounded-lg flex items-start cursor-pointer hover:bg-gray-700 transition-colors ${selectedSketch?.id === sketch.id ? 'ring-2 ring-orange-400' : ''}`}
-                  >
-                    <div className="relative w-12 h-12 mr-3 flex-shrink-0 bg-white rounded">
-                      <Image src={sketch.dataUrl} alt={sketch.name} fill style={{ objectFit: 'contain' }} className="rounded" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white truncate">{sketch.name}</p>
-                      <p className="text-xs text-gray-400">{new Date(sketch.createdAt).toLocaleDateString()}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Storyboard Section */}
-          <div className="flex-grow">
-            <h3 className="text-lg font-semibold mb-2">스토리보드</h3>
-            {storyboard.length === 0 ? (
-              <div className="text-gray-400 text-center mt-10 flex-grow flex items-center justify-center">
-                <p>생성된 스토리보드가<br/>여기에 표시됩니다.</p>
-              </div>
-            ) : (
-              <div className="flex-grow overflow-y-auto space-y-3 pr-2">
-                {storyboard.map((scene) => (
-                  <div
-                    key={scene.id}
-                    className={`bg-gray-800 p-2 rounded-lg flex items-start cursor-pointer hover:bg-gray-700 transition-colors ${selectedScene?.id === scene.id ? 'ring-2 ring-blue-400' : ''}`}
-                    onClick={() => setSelectedScene(scene)}
-                  >
-                    <Image src={scene.imageUrl} alt={`Scene ${scene.id}`} width={60} height={60} className="rounded-md mr-3 flex-shrink-0" />
-                    <p className="text-sm text-gray-300 flex-1">{scene.description}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          
-          {selectedScene && (
-            <div className="mt-4 flex-shrink-0">
-              <h3 className="text-lg font-semibold mb-2">🔍 상세 보기</h3>
-              <div className="bg-gray-800 p-3 rounded-lg">
-                <div className="relative w-full aspect-square mb-3">
-                  <Image src={selectedScene.imageUrl} alt={`Selected Scene ${selectedScene.id}`} fill style={{ objectFit: 'contain' }} className="rounded-md" />
+          {/* Sketches Tab */}
+          {activeTab === 'sketches' && (
+            <div className="flex-grow">
+              <h3 className="text-lg font-semibold mb-2">저장된 스케치</h3>
+              {sketches.length === 0 ? (
+                <div className="text-gray-400 text-center py-4">
+                  <p>저장된 스케치가 없습니다.</p>
                 </div>
-                <p>{selectedScene.description}</p>
+              ) : (
+                <div className="space-y-2 overflow-y-auto">
+                  {sketches.map((sketch) => (
+                    <div
+                      key={sketch.id}
+                      onClick={() => selectSketch(sketch)}
+                      className={`bg-gray-800 p-2 rounded-lg flex items-start cursor-pointer hover:bg-gray-700 transition-colors ${selectedSketch?.id === sketch.id ? 'ring-2 ring-orange-400' : ''}`}
+                    >
+                      <div className="relative w-12 h-12 mr-3 flex-shrink-0 bg-white rounded">
+                        <Image src={sketch.dataUrl} alt={sketch.name} fill style={{ objectFit: 'contain' }} className="rounded" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{sketch.name}</p>
+                        <p className="text-xs text-gray-400">{new Date(sketch.createdAt).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Storyboard Tab */}
+          {activeTab === 'storyboard' && (
+            <div className="flex-grow">
+              <h3 className="text-lg font-semibold mb-2">스토리보드</h3>
+              <div className="mb-2 flex gap-2">
+                <button
+                  onClick={() => setIsAddStoryModalOpen(true)}
+                  className="text-xs bg-green-600 hover:bg-green-700 px-2 py-1 rounded text-white"
+                >
+                  스토리 추가하기
+                </button>
+                <button
+                  onClick={() => {
+                    localStorage.removeItem('storyboard');
+                    setStoryboard([]);
+                    alert('스토리보드가 초기화되었습니다.');
+                  }}
+                  className="text-xs bg-red-600 hover:bg-red-700 px-2 py-1 rounded text-white"
+                >
+                  스토리보드 초기화
+                </button>
               </div>
+              {(storyboard.length === 0 && stories.length === 0) ? (
+                <div className="text-gray-400 text-center mt-10 flex-grow flex items-center justify-center">
+                  <p>생성된 스토리보드가<br/>여기에 표시됩니다.</p>
+                </div>
+              ) : (
+                <div className="flex-grow overflow-y-auto space-y-3 pr-2">
+                  {/* 스토리 목록 */}
+                  {stories.map((story) => (
+                    <div
+                      key={`story-${story.id}`}
+                      className="bg-gray-800 p-3 rounded-lg border-l-4 border-green-500 cursor-pointer hover:bg-gray-700 transition-colors"
+                      onClick={() => {
+                        setEditingStory(story);
+                        setStoryText(story.text);
+                        setStoryElements(story.elements || []);
+                        setIsAddStoryModalOpen(true);
+                      }}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <span className="text-xs text-green-400 font-semibold">📖 스토리</span>
+                        <div className="flex items-center space-x-2">
+                          {story.updatedAt && (
+                            <span className="text-xs text-yellow-400">수정됨</span>
+                          )}
+                          <span className="text-xs text-gray-500">{new Date(story.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <p className="text-sm text-gray-300 whitespace-pre-wrap">{story.text}</p>
+                    </div>
+                  ))}
+                  
+                  {/* 스토리보드 목록 */}
+                  {storyboard.map((scene) => (
+                    <div
+                      key={`scene-${scene.id}`}
+                      className={`bg-gray-800 p-2 rounded-lg flex items-start cursor-pointer hover:bg-gray-700 transition-colors ${selectedScene?.id === scene.id ? 'ring-2 ring-blue-400' : ''}`}
+                      onClick={() => {
+                        console.log('Clicked scene:', scene);
+                        setSelectedScene(scene);
+                        setIsSceneModalOpen(true);
+                      }}
+                    >
+                      <div className="relative w-12 h-12 mr-3 flex-shrink-0 bg-gray-700 rounded">
+                        <Image 
+                          src={scene.imageUrl} 
+                          alt={`Scene ${scene.id}`} 
+                          fill
+                          style={{ objectFit: 'cover' }}
+                          className="rounded"
+                          onError={(e) => {
+                            console.error('Image failed to load:', scene.imageUrl);
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-300 truncate">{scene.description}</p>
+                        <p className="text-xs text-gray-500">Scene {scene.id}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
+        
       </main>
 
       {/* Upload Modal */}
@@ -934,6 +1367,262 @@ export default function Home() {
                 className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-md font-semibold transition-colors disabled:bg-gray-500"
               >
                 {isLoading ? "생성 중..." : "스토리보드 생성"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Scene Detail Modal */}
+      {isSceneModalOpen && selectedScene && (
+        <div 
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+          onClick={() => setIsSceneModalOpen(false)}
+        >
+          <div 
+            className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold">🔍 스토리보드 상세 보기</h2>
+              <div className="flex space-x-2">
+                <button 
+                  onClick={() => {
+                    setIsGenerateNextSceneModalOpen(true);
+                  }}
+                  className="bg-green-600 hover:bg-green-700 px-3 py-1 rounded-md text-sm font-semibold transition-colors"
+                >
+                  🎬 Generate Next Scene
+                </button>
+                <button 
+                  onClick={() => {
+                    // TODO: Make video functionality
+                    alert('비디오 생성 기능은 곧 구현됩니다!');
+                  }}
+                  className="bg-purple-600 hover:bg-purple-700 px-3 py-1 rounded-md text-sm font-semibold transition-colors"
+                >
+                  🎥 Make This as Video
+                </button>
+              </div>
+            </div>
+            
+            {selectedScene.endFrameUrl ? (
+              // Start/End Frame 나란히 표시
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="relative aspect-square bg-gray-700 rounded-lg overflow-hidden">
+                  <div className="absolute top-2 left-2 bg-green-600 text-white px-2 py-1 rounded text-xs font-semibold z-10">
+                    Start Frame
+                  </div>
+                  <Image 
+                    src={selectedScene.imageUrl} 
+                    alt={`Start Frame ${selectedScene.id}`} 
+                    fill 
+                    style={{ objectFit: 'contain' }} 
+                    className="rounded-lg" 
+                  />
+                </div>
+                <div className="relative aspect-square bg-gray-700 rounded-lg overflow-hidden">
+                  <div className="absolute top-2 left-2 bg-blue-600 text-white px-2 py-1 rounded text-xs font-semibold z-10">
+                    End Frame
+                  </div>
+                  <Image 
+                    src={selectedScene.endFrameUrl} 
+                    alt={`End Frame ${selectedScene.id}`} 
+                    fill 
+                    style={{ objectFit: 'contain' }} 
+                    className="rounded-lg" 
+                  />
+                </div>
+              </div>
+            ) : (
+              // 단일 이미지 표시
+              <div className="relative w-full aspect-square mb-4 bg-gray-700 rounded-lg overflow-hidden">
+                <Image 
+                  src={selectedScene.imageUrl} 
+                  alt={`Scene ${selectedScene.id}`} 
+                  fill 
+                  style={{ objectFit: 'contain' }} 
+                  className="rounded-lg" 
+                />
+              </div>
+            )}
+            
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold mb-2">설명</h3>
+              <p className="text-gray-300">{selectedScene.description}</p>
+            </div>
+            
+            <div className="flex justify-between space-x-4">
+              <button 
+                onClick={() => setIsSceneModalOpen(false)} 
+                className="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-md font-semibold transition-colors"
+              >
+                닫기
+              </button>
+              <button 
+                onClick={() => {
+                  setKeyImage(selectedScene.imageUrl);
+                  setIsSceneModalOpen(false);
+                }} 
+                className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-md font-semibold transition-colors"
+              >
+                메인 화면에 표시
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Story Modal */}
+      {isAddStoryModalOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+          onClick={() => setIsAddStoryModalOpen(false)}
+        >
+          <div 
+            className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-2xl font-bold mb-4">{editingStory ? '📝 스토리 수정하기' : '📝 스토리 추가하기'}</h2>
+            
+            <div className="grid grid-cols-3 gap-6">
+              {/* 왼쪽: 캐릭터 선택 */}
+              <div className="col-span-1">
+                <h3 className="text-lg font-semibold mb-4">캐릭터 추가</h3>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {characters.map((char) => (
+                    <div
+                      key={char.id}
+                      onClick={() => handleAddCharacterToStory(char)}
+                      className="flex items-center p-2 bg-gray-700 rounded-md cursor-pointer hover:bg-gray-600 transition-colors"
+                    >
+                      <Image src={char.imageUrl} alt={char.name} width={30} height={30} className="rounded-full mr-2" />
+                      <span className="text-sm">{char.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 오른쪽: 스토리 작성 */}
+              <div className="col-span-2">
+                <div className="mb-6">
+                  <label className="block text-sm font-medium mb-2">스토리 내용</label>
+                  <p className="text-xs text-gray-400 mb-2">왼쪽에서 캐릭터를 클릭하면 [캐릭터명] 형태로 텍스트에 추가됩니다.</p>
+                  <textarea
+                    value={storyText}
+                    onChange={(e) => handleStoryTextChange(e.target.value)}
+                    placeholder="스토리를 입력해주세요... 캐릭터를 추가하려면 왼쪽 목록에서 캐릭터를 클릭하세요."
+                    className="w-full h-64 p-3 bg-gray-700 text-white rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  
+                  {storyElements.some(el => el.type === 'character') && (
+                    <div className="mt-2 p-2 bg-gray-600 rounded-md">
+                      <p className="text-xs text-blue-300 mb-1">포함된 캐릭터:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {storyElements.filter(el => el.type === 'character').map((element, index) => (
+                          <div key={index} className="flex items-center bg-blue-600 text-white px-2 py-1 rounded-full text-xs">
+                            <Image 
+                              src={element.character!.imageUrl} 
+                              alt={element.character!.name} 
+                              width={16} 
+                              height={16} 
+                              className="rounded-full mr-1" 
+                            />
+                            {element.character!.name}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-end space-x-4">
+              <button 
+                onClick={() => {
+                  setStoryText('');
+                  setEditingStory(null);
+                  setStoryElements([]);
+                  setIsAddStoryModalOpen(false);
+                }} 
+                className="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-md font-semibold transition-colors"
+              >
+                취소
+              </button>
+              {editingStory ? (
+                <button 
+                  onClick={handleSaveStory}
+                  disabled={!storyText.trim()}
+                  className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-md font-semibold transition-colors disabled:bg-gray-500"
+                >
+                  수정하기
+                </button>
+              ) : (
+                <>
+                  <button 
+                    onClick={handleSaveStory}
+                    disabled={!storyText.trim()}
+                    className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-md font-semibold transition-colors disabled:bg-gray-500"
+                  >
+                    저장하기
+                  </button>
+                  <button 
+                    onClick={handleGenerateImageFromStory}
+                    disabled={!storyText.trim() || isLoading}
+                    className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-md font-semibold transition-colors disabled:bg-gray-500"
+                  >
+                    {isLoading ? '생성 중...' : '🎨 이미지 생성하기'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Generate Next Scene Modal */}
+      {isGenerateNextSceneModalOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+          onClick={() => setIsGenerateNextSceneModalOpen(false)}
+        >
+          <div 
+            className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-2xl font-bold mb-4">🎬 다음 장면 생성하기</h2>
+            
+            <div className="mb-4">
+              <p className="text-sm text-gray-300 mb-3">
+                현재 이미지에서 이어질 다음 장면을 생성합니다. 특정 지시사항이 있다면 아래에 입력하세요.
+              </p>
+              
+              <label className="block text-sm font-medium mb-2">다음 장면 설명 (선택사항)</label>
+              <textarea
+                value={nextScenePrompt}
+                onChange={(e) => setNextScenePrompt(e.target.value)}
+                placeholder="예: 캐릭터가 문을 열고 나간다, 시간이 밤으로 바뀐다, 카메라가 확대된다... (비워두면 자동으로 다음 장면 생성)"
+                className="w-full h-24 p-3 bg-gray-700 text-white rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+            
+            <div className="flex justify-end space-x-4">
+              <button 
+                onClick={() => {
+                  setIsGenerateNextSceneModalOpen(false);
+                  setNextScenePrompt('');
+                }} 
+                className="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-md font-semibold transition-colors"
+              >
+                취소
+              </button>
+              <button 
+                onClick={handleGenerateNextScene}
+                disabled={isLoading}
+                className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-md font-semibold transition-colors disabled:bg-gray-500"
+              >
+                {isLoading ? '생성 중...' : '🎬 다음 장면 생성'}
               </button>
             </div>
           </div>

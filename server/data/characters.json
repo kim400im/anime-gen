@@ -8,7 +8,19 @@
         "http://localhost:8000/static/images/character_sheet_1757063379_1.png",
         "http://localhost:8000/static/images/character_sheet_1757063379_3.png"
       ]
+    },
+    {
+      "id": 2,
+      "name": "탄지로",
+      "imageUrl": "http://localhost:8000/static/images/1757145825_o5Uca6Lmm_a4kIjZSfZt4ynOzp3_0UB3CIgYBgrVk89hIwvi-3KX94XvvQAuVq77LxvWpDGxL-Rw0vB13s9znw (1).webp",
+      "characterSheets": [
+        "http://localhost:8000/static/images/character_sheet_1757145865_1.png",
+        "http://localhost:8000/static/images/character_sheet_1757145865_3.png",
+        "http://localhost:8000/static/images/character_sheet_1757145865_5.png",
+        "http://localhost:8000/static/images/character_sheet_1757145865_7.png",
+        "http://localhost:8000/static/images/character_sheet_1757145865_9.png"
+      ]
     }
   ],
-  "next_id": 2
+  "next_id": 3
 }
